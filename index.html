@@ -2,13 +2,14 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
     <title>Digit Span Study</title>
     <style>
         * {
             margin: 0;
             padding: 0;
             box-sizing: border-box;
+            -webkit-tap-highlight-color: transparent;
         }
         
         body {
@@ -21,6 +22,7 @@
             align-items: center;
             height: 100vh;
             width: 100vw;
+            touch-action: manipulation;
         }
         
         #container {
@@ -31,27 +33,83 @@
         }
         
         #main-text {
-            font-size: 48px;
+            font-size: clamp(24px, 5vw, 48px);
             line-height: 1.5;
             margin-bottom: 40px;
         }
         
         #digit-display {
-            font-size: 72px;
+            font-size: clamp(48px, 10vw, 72px);
             font-weight: bold;
         }
         
         #input-display {
-            font-size: 48px;
+            font-size: clamp(32px, 7vw, 48px);
             margin-top: 20px;
             min-height: 60px;
             border-bottom: 2px solid #fff;
             padding: 10px;
+            letter-spacing: 0.5em;
         }
         
-        .instruction {
-            font-size: 36px;
-            margin-bottom: 20px;
+        .button {
+            background-color: #fff;
+            color: #000;
+            border: none;
+            padding: 15px 40px;
+            font-size: clamp(18px, 4vw, 24px);
+            border-radius: 8px;
+            cursor: pointer;
+            margin: 20px auto;
+            display: inline-block;
+            min-width: 200px;
+            font-weight: bold;
+            transition: background-color 0.2s;
+        }
+        
+        .button:active {
+            background-color: #ccc;
+        }
+        
+        .number-pad {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 15px;
+            max-width: 300px;
+            margin: 30px auto;
+        }
+        
+        .number-btn {
+            background-color: #333;
+            color: #fff;
+            border: 2px solid #666;
+            padding: 20px;
+            font-size: clamp(24px, 6vw, 32px);
+            border-radius: 8px;
+            cursor: pointer;
+            font-weight: bold;
+            transition: background-color 0.2s;
+        }
+        
+        .number-btn:active {
+            background-color: #555;
+        }
+        
+        .action-btn {
+            background-color: #444;
+            color: #fff;
+            border: 2px solid #888;
+        }
+        
+        .submit-btn {
+            background-color: #0a0;
+            color: #fff;
+            border: 2px solid #0c0;
+            grid-column: span 3;
+        }
+        
+        .submit-btn:active {
+            background-color: #080;
         }
         
         .hidden {
@@ -64,6 +122,7 @@
         <div id="main-text"></div>
         <div id="digit-display"></div>
         <div id="input-display" class="hidden"></div>
+        <div id="button-container"></div>
     </div>
 
     <script>
@@ -96,6 +155,7 @@
         let responseStartTime = 0;
         let currentResponse = '';
         let startTime = '';
+        let audioContext = null;
         
         // ============================================================================
         // UTILITY FUNCTIONS
@@ -127,66 +187,167 @@
             }
         }
         
-        function showText(text) {
-            document.getElementById('main-text').innerHTML = text;
+        function clearUI() {
+            document.getElementById('main-text').innerHTML = '';
             document.getElementById('digit-display').textContent = '';
             document.getElementById('input-display').classList.add('hidden');
+            document.getElementById('button-container').innerHTML = '';
+        }
+        
+        function showText(text, showButton = false, buttonText = 'Continue', buttonCallback = null) {
+            clearUI();
+            document.getElementById('main-text').innerHTML = text;
+            
+            if (showButton) {
+                const btn = document.createElement('button');
+                btn.className = 'button';
+                btn.textContent = buttonText;
+                btn.onclick = buttonCallback;
+                document.getElementById('button-container').appendChild(btn);
+            }
         }
         
         function showDigit(digit) {
-            document.getElementById('main-text').textContent = '';
+            clearUI();
             document.getElementById('digit-display').textContent = digit;
-            document.getElementById('input-display').classList.add('hidden');
         }
         
-        function showInputScreen() {
-            document.getElementById('main-text').innerHTML = 'Type the digits you remember (in order).<br>Press ENTER to submit.';
-            document.getElementById('digit-display').textContent = '';
+        function showInputScreen(callback) {
+            clearUI();
+            document.getElementById('main-text').innerHTML = 'Type the digits you remember (in order)';
             document.getElementById('input-display').classList.remove('hidden');
             document.getElementById('input-display').textContent = '_';
             currentResponse = '';
             responseStartTime = Date.now();
+            
+            createNumberPad(callback);
+        }
+        
+        function createNumberPad(submitCallback) {
+            const container = document.getElementById('button-container');
+            const pad = document.createElement('div');
+            pad.className = 'number-pad';
+            
+            // Numbers 1-9
+            for (let i = 1; i <= 9; i++) {
+                const btn = document.createElement('button');
+                btn.className = 'number-btn';
+                btn.textContent = i;
+                btn.onclick = () => addDigit(i.toString());
+                pad.appendChild(btn);
+            }
+            
+            // Backspace button
+            const backBtn = document.createElement('button');
+            backBtn.className = 'number-btn action-btn';
+            backBtn.textContent = '←';
+            backBtn.onclick = () => removeDigit();
+            pad.appendChild(backBtn);
+            
+            // Zero button
+            const zeroBtn = document.createElement('button');
+            zeroBtn.className = 'number-btn';
+            zeroBtn.textContent = '0';
+            zeroBtn.onclick = () => addDigit('0');
+            pad.appendChild(zeroBtn);
+            
+            // Clear button
+            const clearBtn = document.createElement('button');
+            clearBtn.className = 'number-btn action-btn';
+            clearBtn.textContent = 'Clear';
+            clearBtn.onclick = () => clearResponse();
+            pad.appendChild(clearBtn);
+            
+            // Submit button
+            const submitBtn = document.createElement('button');
+            submitBtn.className = 'number-btn submit-btn';
+            submitBtn.textContent = 'Submit';
+            submitBtn.onclick = submitCallback;
+            pad.appendChild(submitBtn);
+            
+            container.appendChild(pad);
+        }
+        
+        function addDigit(digit) {
+            currentResponse += digit;
+            updateInput();
+        }
+        
+        function removeDigit() {
+            currentResponse = currentResponse.slice(0, -1);
+            updateInput();
+        }
+        
+        function clearResponse() {
+            currentResponse = '';
+            updateInput();
         }
         
         function updateInput() {
-            document.getElementById('input-display').textContent = currentResponse || '_';
+            const display = document.getElementById('input-display');
+            display.textContent = currentResponse || '_';
         }
         
         function sleep(ms) {
             return new Promise(resolve => setTimeout(resolve, ms));
         }
         
+        function enterFullscreen() {
+            const elem = document.documentElement;
+            if (elem.requestFullscreen) {
+                elem.requestFullscreen().catch(() => {});
+            } else if (elem.webkitRequestFullscreen) {
+                elem.webkitRequestFullscreen();
+            } else if (elem.msRequestFullscreen) {
+                elem.msRequestFullscreen();
+            }
+        }
+        
         // ============================================================================
         // AUDIO MANAGEMENT
         // ============================================================================
         
-        function loadAndPlayAudio() {
+        async function initAudioContext() {
+            if (!audioContext) {
+                audioContext = new (window.AudioContext || window.webkitAudioContext)();
+            }
+            if (audioContext.state === 'suspended') {
+                await audioContext.resume();
+            }
+        }
+        
+        async function loadAndPlayAudio() {
             if (condition === 'Silence') {
-                return Promise.resolve(true);
+                return true;
             }
             
-            return new Promise((resolve) => {
+            try {
+                await initAudioContext();
+                
                 const audioPath = AUDIO_FILES[condition];
                 currentAudio = new Audio(audioPath);
                 currentAudio.loop = true;
                 currentAudio.volume = 0.3;
                 
-                currentAudio.addEventListener('canplaythrough', () => {
-                    currentAudio.play()
-                        .then(() => resolve(true))
-                        .catch(() => {
-                            showText(`Audio file missing or cannot play: ${audioPath}<br><br>Press SPACE to continue without audio.`);
+                return new Promise((resolve) => {
+                    currentAudio.addEventListener('canplaythrough', async () => {
+                        try {
+                            await currentAudio.play();
+                            resolve(true);
+                        } catch (e) {
                             resolve(false);
-                        });
-                }, { once: true });
-                
-                currentAudio.addEventListener('error', () => {
-                    showText(`Audio file missing: ${audioPath}<br><br>Press SPACE to continue without audio.`);
-                    resolve(false);
+                        }
+                    }, { once: true });
+                    
+                    currentAudio.addEventListener('error', () => {
+                        resolve(false);
+                    }, { once: true });
+                    
+                    currentAudio.load();
                 });
-                
-                currentAudio.load();
-            });
+            } catch (e) {
+                return false;
+            }
         }
         
         function stopAudio() {
@@ -202,7 +363,7 @@
         
         async function sendToGoogleSheets(data) {
             try {
-                const response = await fetch(GOOGLE_SCRIPT_URL, {
+                await fetch(GOOGLE_SCRIPT_URL, {
                     method: 'POST',
                     mode: 'no-cors',
                     headers: {
@@ -210,8 +371,6 @@
                     },
                     body: JSON.stringify(data)
                 });
-                
-                // Note: no-cors means we can't read the response, but the data is sent
                 return true;
             } catch (error) {
                 console.error('Error sending data:', error);
@@ -227,17 +386,15 @@
                 start_time_iso: startTime
             };
             
-            // Send participant data
             await sendToGoogleSheets(participantData);
             
-            // Send each trial
             for (let trial of trialData) {
                 const trialDataToSend = {
                     type: 'trial',
                     ...trial
                 };
                 await sendToGoogleSheets(trialDataToSend);
-                await sleep(100); // Small delay between requests
+                await sleep(100);
             }
         }
         
@@ -249,58 +406,40 @@
             const trial = trials[trialIndex];
             const trialStart = new Date().toISOString();
             
-            // Show "Get ready" between trials
             if (trialIndex > 0) {
                 showText('Get ready...');
                 await sleep(1000);
             }
             
-            // Fixation
             showDigit('+');
             await sleep(500);
             
-            // Show sequence
             for (let digit of trial.sequence) {
                 showDigit(digit);
                 await sleep(1000);
             }
             
-            // Get response
             return new Promise((resolve) => {
-                showInputScreen();
-                
-                const handleKeyDown = (e) => {
-                    if (e.key === 'Enter') {
-                        const rt = Date.now() - responseStartTime;
-                        const trialEnd = new Date().toISOString();
-                        const correct = currentResponse === trial.sequence ? 1 : 0;
-                        
-                        trialData.push({
-                            participant_id: participantId,
-                            condition: condition,
-                            trial_index: trial.index,
-                            sequence_presented: trial.sequence,
-                            response: currentResponse,
-                            correct: correct,
-                            sequence_length: trial.length,
-                            rt_ms: rt,
-                            trial_start_iso: trialStart,
-                            trial_end_iso: trialEnd
-                        });
-                        
-                        document.removeEventListener('keydown', handleKeyDown);
-                        resolve();
-                    } else if (e.key === 'Backspace') {
-                        e.preventDefault();
-                        currentResponse = currentResponse.slice(0, -1);
-                        updateInput();
-                    } else if (e.key.length === 1 && /[0-9]/.test(e.key)) {
-                        currentResponse += e.key;
-                        updateInput();
-                    }
-                };
-                
-                document.addEventListener('keydown', handleKeyDown);
+                showInputScreen(() => {
+                    const rt = Date.now() - responseStartTime;
+                    const trialEnd = new Date().toISOString();
+                    const correct = currentResponse === trial.sequence ? 1 : 0;
+                    
+                    trialData.push({
+                        participant_id: participantId,
+                        condition: condition,
+                        trial_index: trial.index,
+                        sequence_presented: trial.sequence,
+                        response: currentResponse,
+                        correct: correct,
+                        sequence_length: trial.length,
+                        rt_ms: rt,
+                        trial_start_iso: trialStart,
+                        trial_end_iso: trialEnd
+                    });
+                    
+                    resolve();
+                });
             });
         }
         
@@ -314,78 +453,51 @@
         // MAIN FLOW
         // ============================================================================
         
-        function waitForSpace() {
-            return new Promise((resolve) => {
-                const handleKeyDown = (e) => {
-                    if (e.key === ' ' || e.key === 'Spacebar') {
-                        document.removeEventListener('keydown', handleKeyDown);
-                        resolve();
-                    }
-                };
-                document.addEventListener('keydown', handleKeyDown);
-            });
-        }
-        
         async function runStudy() {
-            // Initialize
             participantId = generateParticipantId();
             condition = randomCondition();
             startTime = new Date().toISOString();
             generateTrials();
             
-            // Enter fullscreen
-            if (document.documentElement.requestFullscreen) {
-                try {
-                    await document.documentElement.requestFullscreen();
-                } catch (e) {
-                    // Fullscreen failed, continue anyway
-                }
-            }
+            await new Promise(resolve => {
+                showText('This study tests memory while background<br>audio may be playing.<br><br>Tap to begin.', true, 'Begin', resolve);
+            });
             
-            // Welcome
-            showText('This study tests memory while background<br>audio may be playing.<br><br>Press SPACE to begin.');
-            await waitForSpace();
+            enterFullscreen();
             
-            // Instructions
-            showText('You will see sequences of digits.<br>Memorize them and type them back in order.<br><br>Press ENTER to submit.');
-            await waitForSpace();
+            await new Promise(resolve => {
+                showText('You will see sequences of digits.<br>Memorize them and type them back in order.<br><br>Tap to continue.', true, 'Continue', resolve);
+            });
             
-            // Load audio
+            await initAudioContext();
+            
             const audioLoaded = await loadAndPlayAudio();
             if (!audioLoaded && condition !== 'Silence') {
-                await waitForSpace();
+                await new Promise(resolve => {
+                    showText(`Audio could not play.<br><br>Continuing without audio.`, true, 'Continue', resolve);
+                });
             }
             
-            // Run trials
             await runAllTrials();
             
-            // Stop audio
             stopAudio();
             
-            // Save data to Google Sheets
             showText('Saving your responses...');
             await saveAllData();
             
-            // Thank you
             showText('Thanks! Your responses have been recorded.<br>You may close this window.');
             
-            // Exit fullscreen after a delay
             await sleep(3000);
             if (document.exitFullscreen) {
-                try {
-                    await document.exitFullscreen();
-                } catch (e) {
-                    // Ignore error
-                }
+                document.exitFullscreen().catch(() => {});
             }
         }
         
-        // Start the study when page loads
         window.addEventListener('load', () => {
             runStudy();
         });
         
-        // Handle escape key to exit
+        // Keyboard support for desktop users
         document.addEventListener('keydown', (e) => {
             if (e.key === 'Escape') {
                 stopAudio();
