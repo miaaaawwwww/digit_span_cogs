@@ -68,6 +68,12 @@
 
     <script>
         // ============================================================================
+        // CONFIGURATION - GOOGLE APPS SCRIPT WEB APP URL
+        // ============================================================================
+        
+        const GOOGLE_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbxKqM6frDma-QJbMI0MxG9958ykeGMIcoo2r2TleUzCP9qAAHQNOXExCUkpc7B2LGIx7Q/exec';
+        
+        // ============================================================================
         // GLOBAL STATE
         // ============================================================================
         
@@ -89,6 +95,7 @@
         let trials = [];
         let responseStartTime = 0;
         let currentResponse = '';
+        let startTime = '';
         
         // ============================================================================
         // UTILITY FUNCTIONS
@@ -190,39 +197,48 @@
         }
         
         // ============================================================================
-        // CSV DOWNLOAD
+        // GOOGLE SHEETS INTEGRATION
         // ============================================================================
         
-        function downloadCSV(filename, content) {
-            const blob = new Blob([content], { type: 'text/csv' });
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = url;
-            a.download = filename;
-            document.body.appendChild(a);
-            a.click();
-            document.body.removeChild(a);
-            URL.revokeObjectURL(url);
+        async function sendToGoogleSheets(data) {
+            try {
+                const response = await fetch(GOOGLE_SCRIPT_URL, {
+                    method: 'POST',
+                    mode: 'no-cors',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify(data)
+                });
+                
+                // Note: no-cors means we can't read the response, but the data is sent
+                return true;
+            } catch (error) {
+                console.error('Error sending data:', error);
+                return false;
+            }
         }
         
-        function createParticipantCSV() {
-            const startTime = new Date().toISOString();
-            const header = 'participant_id,condition,start_time_iso\n';
-            const row = `${participantId},${condition},${startTime}\n`;
-            return header + row;
-        }
-        
-        function createTrialsCSV() {
-            const header = 'participant_id,condition,trial_index,sequence_presented,response,correct,sequence_length,rt_ms,trial_start_iso,trial_end_iso\n';
-            const rows = trialData.map(trial => {
-                return `${trial.participant_id},${trial.condition},${trial.trial_index},"${trial.sequence_presented}","${trial.response}",${trial.correct},${trial.sequence_length},${trial.rt_ms},${trial.trial_start_iso},${trial.trial_end_iso}`;
-            }).join('\n');
-            return header + rows;
-        }
-        
-        function downloadAllData() {
-            downloadCSV(`participant_${participantId}.csv`, createParticipantCSV());
-            downloadCSV(`trials_${participantId}.csv`, createTrialsCSV());
+        async function saveAllData() {
+            const participantData = {
+                type: 'participant',
+                participant_id: participantId,
+                condition: condition,
+                start_time_iso: startTime
+            };
+            
+            // Send participant data
+            await sendToGoogleSheets(participantData);
+            
+            // Send each trial
+            for (let trial of trialData) {
+                const trialDataToSend = {
+                    type: 'trial',
+                    ...trial
+                };
+                await sendToGoogleSheets(trialDataToSend);
+                await sleep(100); // Small delay between requests
+            }
         }
         
         // ============================================================================
@@ -314,6 +330,7 @@
             // Initialize
             participantId = generateParticipantId();
             condition = randomCondition();
+            startTime = new Date().toISOString();
             generateTrials();
             
             // Enter fullscreen
@@ -345,17 +362,15 @@
             // Stop audio
             stopAudio();
             
+            // Save data to Google Sheets
+            showText('Saving your responses...');
+            await saveAllData();
+            
             // Thank you
-            showText('Thanks! Your responses have been recorded.');
-            await sleep(2000);
+            showText('Thanks! Your responses have been recorded.<br>You may close this window.');
             
-            // Download data
-            downloadAllData();
-            
-            // Final message
-            showText('Your data has been downloaded.<br>You may close this window.');
-            
-            // Exit fullscreen
+            // Exit fullscreen after a delay
+            await sleep(3000);
             if (document.exitFullscreen) {
                 try {
                     await document.exitFullscreen();
